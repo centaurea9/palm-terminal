@@ -5,7 +5,7 @@ U8g2_for_TFT_eSPI u8g2;
 
 void screen_init() {
     tft.init();
-    tft.setRotation(1);       // 横屏 284×76
+    tft.setRotation(1);       // 竖屏 76×284
     tft.fillScreen(TFT_BLACK);
 
     // U8g2 绑定 TFT
@@ -34,7 +34,8 @@ void screen_brightness(uint8_t level) {
 }
 
 void screen_draw_text(int x, int y, const char *text) {
-    u8g2.setCursor(x, y);
+    // y = 文字顶部坐标；U8g2 光标以基线为基准，加上 ascent 修正
+    u8g2.setCursor(x, y + u8g2.getFontAscent());
     u8g2.print(text);
 }
 

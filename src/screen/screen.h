@@ -16,6 +16,9 @@
 extern TFT_eSPI tft;
 extern U8g2_for_TFT_eSPI u8g2;
 
+//设置字体大小（12-16）
+// u8g2.setFont(u8g2_font_wqy12_t_gb2312);
+
 // 初始化屏幕 (含 U8g2 绑定)
 void screen_init();
 
