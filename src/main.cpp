@@ -2,7 +2,7 @@
  * 掌上终端 — 主程序
  *
  * 模块:
- *   - screen/    TFT_eSPI 显示驱动 (ST7789, 76×284 竖屏)
+ *   - screen/    TFT_eSPI 显示驱动 (ST7789, 284×76 横屏)
  */
 
 #include "screen/screen.h"
@@ -16,7 +16,7 @@ void setup() {
     delay(100);
 
     Serial.println("\n============================================");
-    Serial.println("  掌上终端 - 76x284 ST7789 竖屏");
+    Serial.println("  掌上终端 - 284x76 ST7789 横屏");
     Serial.println("============================================");
 
     screen_init();
@@ -24,21 +24,23 @@ void setup() {
 }
 
 void loop() {
-    int w = tft.width();   // 76
-    int h = tft.height();  // 284
+    int w = tft.width();   // 284
+    int h = tft.height();  // 76
 
     // 三等分高度: 红 / 黄 / 蓝 横条
-    int seg = h / 3;  // 94
+    int h1 = h / 3;          // 25
+    int h2 = h / 3;          // 25
+    int h3 = h - h1 - h2;    // 26
 
-    tft.fillRect(0, 0,         w, seg,          TFT_RED);
-    tft.fillRect(0, seg,       w, seg,          TFT_YELLOW);
-    tft.fillRect(0, seg * 2,   w, h - seg * 2,  TFT_BLUE);
+    tft.fillRect(0, 0,        w, h1, TFT_RED);
+    tft.fillRect(0, h1,       w, h2, TFT_YELLOW);
+    tft.fillRect(0, h1 + h2,  w, h3, TFT_BLUE);
 
     delay(5000);
 
-    tft.fillRect(0, 0,         w, seg,          TFT_BLUE);
-    tft.fillRect(0, seg,       w, seg,          TFT_YELLOW);
-    tft.fillRect(0, seg * 2,   w, h - seg * 2,  TFT_RED);
+    tft.fillRect(0, 0,        w, h1, TFT_BLUE);
+    tft.fillRect(0, h1,       w, h2, TFT_YELLOW);
+    tft.fillRect(0, h1 + h2,  w, h3, TFT_RED);
 
     delay(5000);
 }

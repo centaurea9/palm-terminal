@@ -4,7 +4,7 @@ TFT_eSPI tft = TFT_eSPI();
 
 void screen_init() {
     tft.init();
-    tft.setRotation(0);       // 76×284 竖屏 (ST7789 列≤240, 284必须做行)
+    tft.setRotation(1);       // 横屏 284×76
     tft.fillScreen(TFT_BLACK);
 }
 
