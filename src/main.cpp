@@ -1,5 +1,7 @@
+#include <Arduino.h>
 #include "screen/screen.h"
 #include "menu.h"
+#include "input/ec11.h"
 #include <math.h>
 
 #define ANIM_SPEED                0.22f
@@ -17,11 +19,16 @@
 #define MENU_BOX_H                22
 #define MENU_ITEM_SPACING_Y       18
 
-#define AUTO_DEMO                 1
+#define AUTO_DEMO                 0
 #define DEMO_INTERVAL             1200
 #define DEMO_BURST_INTERVAL       4800
 #define DEMO_BURST_STEP_MS        70
 #define DEMO_BURST_STEPS          5
+
+#define EC11_PIN_A                25
+#define EC11_PIN_B                26
+#define EC11_PIN_SW               27
+#define EC11_LONG_PRESS_MS        700
 
 static MenuItem *current_menu = nullptr;
 static int selected_index = 0;
@@ -31,6 +38,7 @@ static float menu_curve_energy = 0.0f;
 static float menu_sling_display = 0.0f;
 static bool in_content = false;
 static MenuItem *content_item = nullptr;
+static EC11Input encoder;
 
 static unsigned long anim_ts = 0;
 static unsigned long menu_last_input_ts = 0;
@@ -124,6 +132,15 @@ static void move_selection(int delta) {
 
     selected_index = next;
     menu_target_position = next;
+}
+
+static void close_content(bool &dirty) {
+    if (!in_content) return;
+
+    in_content = false;
+    content_item = nullptr;
+    dirty = true;
+    Serial.println("Close content");
 }
 
 static bool update_curve_energy() {
@@ -269,7 +286,15 @@ void setup() {
     delay(100);
     Serial.println("\n=== Palm Terminal ===");
     screen_init();
+    EC11Config encoder_config;
+    encoder_config.pin_a = EC11_PIN_A;
+    encoder_config.pin_b = EC11_PIN_B;
+    encoder_config.pin_button = EC11_PIN_SW;
+    encoder_config.long_press_ms = EC11_LONG_PRESS_MS;
+    encoder.begin(encoder_config);
     Serial.printf("Display: %dx%d\n", tft.width(), tft.height());
+    Serial.printf("EC11 pins: A=%d, B=%d, SW=%d\n", EC11_PIN_A, EC11_PIN_B, EC11_PIN_SW);
+    Serial.println("EC11: CW=up, CCW=down, click=enter, hold=back");
     current_menu = menu_root;
     reset_menu_view(0);
 }
@@ -366,8 +391,78 @@ static void handle_menu_back(bool &dirty) {
     Serial.println("Back");
 }
 
+static void handle_encoder_input(bool &dirty) {
+    encoder.update();
+
+    if (!in_content) {
+        int steps = encoder.consume_steps();
+        if (steps != 0) {
+            // Recommended wiring: clockwise produces positive steps.
+            move_selection(-steps);
+            dirty = true;
+        }
+    } else {
+        encoder.consume_steps();
+    }
+
+    if (encoder.consume_click()) {
+        if (in_content) {
+            close_content(dirty);
+        } else {
+            handle_menu_enter(dirty);
+        }
+    }
+
+    if (encoder.consume_long_press()) {
+        if (in_content) {
+            close_content(dirty);
+        } else {
+            handle_menu_back(dirty);
+        }
+    }
+}
+
+static void handle_serial_input(bool &dirty) {
+    while (Serial.available()) {
+        char c = Serial.read();
+
+        if (in_content) {
+            if (c == 'q' || c == 'Q') {
+                close_content(dirty);
+            }
+            continue;
+        }
+
+        switch (c) {
+            case 'w':
+            case 'W':
+                move_selection(-1);
+                dirty = true;
+                break;
+
+            case 's':
+            case 'S':
+                move_selection(+1);
+                dirty = true;
+                break;
+
+            case 'e':
+            case 'E':
+                handle_menu_enter(dirty);
+                break;
+
+            case 'q':
+            case 'Q':
+                handle_menu_back(dirty);
+                break;
+        }
+    }
+}
+
 void loop() {
     static bool dirty = true;
+
+    handle_encoder_input(dirty);
 
 #if AUTO_DEMO
     {
@@ -434,42 +529,9 @@ void loop() {
             Serial.read();
         }
     }
-#else
-    while (Serial.available()) {
-        char c = Serial.read();
-
-        if (in_content) {
-            if (c == 'q' || c == 'Q') {
-                in_content = false;
-                content_item = nullptr;
-                dirty = true;
-            }
-            continue;
-        }
-
-        switch (c) {
-            case 'w':
-            case 'W':
-                move_selection(-1);
-                break;
-
-            case 's':
-            case 'S':
-                move_selection(+1);
-                break;
-
-            case 'e':
-            case 'E':
-                handle_menu_enter(dirty);
-                break;
-
-            case 'q':
-            case 'Q':
-                handle_menu_back(dirty);
-                break;
-        }
-    }
 #endif
+
+    handle_serial_input(dirty);
 
     if (update_curve_energy()) dirty = true;
     if (update_menu_sling_display()) dirty = true;
