@@ -24,15 +24,19 @@ public:
     bool consume_long_press();
 
 private:
-    uint8_t read_encoder_state() const;
+    static void IRAM_ATTR handle_encoder_isr();
+    void update_encoder_from_isr();
+    uint8_t IRAM_ATTR read_encoder_state() const;
     bool read_button_pressed() const;
+
+    static EC11Input *instance_;
 
     EC11Config config_{};
     bool ready_ = false;
 
-    uint8_t last_encoder_state_ = 0;
-    int8_t quarter_steps_ = 0;
-    int pending_steps_ = 0;
+    volatile uint8_t last_encoder_state_ = 0;
+    volatile int8_t quarter_steps_ = 0;
+    volatile int pending_steps_ = 0;
 
     bool raw_button_pressed_ = false;
     bool stable_button_pressed_ = false;
