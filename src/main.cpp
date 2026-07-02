@@ -2,11 +2,12 @@
  * 掌上终端 — 主程序
  *
  * 模块:
- *   - screen/    显示驱动 (ST7789, 76×284 竖屏)
+ *   - screen/    显示驱动 (ST7789, 76×284 横屏)
  *   - screen/    中英文文字渲染 (U8g2_for_TFT_eSPI)
  */
 
 #include "screen/screen.h"
+#include "images/ak.h"
 
 void setup() {
     Serial.begin(115200);
@@ -21,19 +22,38 @@ void setup() {
 }
 
 void loop() {
-    tft.fillScreen(TFT_BLACK);
-    u8g2.setFont(u8g2_font_wqy16_t_gb2312);
-    // ---------- 顶部居中: 干员寻访 ----------
-    
-    screen_text_color(TFT_CYAN, TFT_BLACK);
-    screen_draw_text(14, 2, "星期天");
+    tft.fillScreen(TFT_WHITE);
 
-    // ---------- 右下角竖排: 博士终端 (端字在最底部) ----------
+    // 显示图片 164x76, 1-bit 位图
+    tft.drawBitmap(60, 0, epd_bitmap_, 164, 76, TFT_WHITE,TFT_BLACK );
+
+    // //长条屏幕x=90px左侧
     //
-
-   
-    screen_text_color(TFT_CYAN, TFT_BLACK);
-    screen_draw_text(60,61, "博士终端");
+    // //显示星期
+    // u8g2.setFont(u8g2_font_wqy16_t_gb2312);
+    // screen_text_color(TFT_CYAN, TFT_BLACK);
+    // screen_draw_text(22, 15, "星期天");
+    //
+    // //显示时间
+    // u8g2.setFont(u8g2_font_freedoomr25_tn);
+    // screen_text_color(TFT_CYAN, TFT_BLACK);
+    // screen_draw_text(-3, 40, "10:16");
+    //
+    // // ---------- 竖线 ----------
+    // tft.drawFastVLine(89, 0, 76, TFT_CYAN);
+    // screen_text_color(TFT_CYAN, TFT_BLACK);
+    //
+    // //x=90px右侧
+    // u8g2.setFont(u8g2_font_wqy12_t_gb2312);
+    // screen_draw_text(200,10, "功能1");
+    // screen_draw_text(190,31, "功能2");
+    // screen_draw_text(200,52, "功能3");
+    //
+    // // ---------- 斜线 ----------
+    // tft.drawLine(100, 60, 180, 70, TFT_RED);
+    //
+    // // ---------- 矩形 ----------
+    // tft.drawRect(100, 5, 80, 30, TFT_YELLOW);
 
     delay(10000);
 }
