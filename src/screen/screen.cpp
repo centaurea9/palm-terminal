@@ -1,6 +1,7 @@
 #include "screen.h"
 
 TFT_eSPI tft = TFT_eSPI();
+TFT_eSprite screen_sprite = TFT_eSprite(&tft);
 U8g2_for_TFT_eSPI u8g2;
 
 void screen_init() {
@@ -8,8 +9,13 @@ void screen_init() {
     tft.setRotation(1);       // 竖屏 76×284
     tft.fillScreen(TFT_BLACK);
 
-    // U8g2 绑定 TFT
-    u8g2.begin(tft);
+    // 创建全屏离屏画布 (284×76 = 43KB)
+    screen_sprite.setColorDepth(16);
+    screen_sprite.createSprite(tft.width(), tft.height());
+    screen_sprite.fillSprite(TFT_BLACK);
+
+    // U8g2 绑定到 Sprite → 所有文字先画到 RAM
+    u8g2.begin(screen_sprite);
     u8g2.setFontMode(1);      // 透明模式
     u8g2.setFontDirection(0); // 从左到右
     u8g2.setForegroundColor(TFT_WHITE);
@@ -17,6 +23,10 @@ void screen_init() {
 
     // 中文字体 (文泉驿 12px, GB2312)
     u8g2.setFont(u8g2_font_wqy12_t_gb2312);
+}
+
+void screen_flush() {
+    screen_sprite.pushSprite(0, 0);
 }
 
 void screen_backlight(bool on) {

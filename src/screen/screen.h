@@ -14,7 +14,11 @@
 
 // 全局实例
 extern TFT_eSPI tft;
+extern TFT_eSprite screen_sprite;   // 离屏画布 (防闪)
 extern U8g2_for_TFT_eSPI u8g2;
+
+// 推送 Sprite 到屏幕 (每帧画完后调用一次)
+void screen_flush();
 
 //设置字体大小（12-16）
 // u8g2.setFont(u8g2_font_wqy12_t_gb2312);
