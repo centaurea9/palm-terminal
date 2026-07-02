@@ -1,243 +1,492 @@
-/**
- * 掌上终端 — 主程序
- *
- * 模块:
- *   - screen/    显示驱动 (ST7789, 76×284 横屏)
- *   - screen/    中英文文字渲染 (U8g2_for_TFT_eSPI)
- *   - menu/      多级菜单
- */
-
 #include "screen/screen.h"
 #include "menu.h"
+#include <math.h>
 
-// ===== 动画参数 (方便微调) =====
-#define ANIM_STEP    3      // 每帧移动像素数 (24/3=8帧)
-#define ANIM_DELAY   16     // 帧间隔 ms (≈60fps)
-#define ROW_HEIGHT   24     // 行高 (y2-y1)
+#define ANIM_SPEED                0.22f
+#define VISUAL_EPS                0.02f
+#define FRAME_FAST_MS             16
+#define VISIBLE_RADIUS            3
+#define MENU_DIVIDER_X            89
+#define MENU_CURVE_FACTOR         7.0f
+#define MENU_CURVE_SPEED_BOOST    6.5f
+#define MENU_SLING_SPEED_BOOST    4.0f
+#define MENU_CENTER_FLING_X       12
+#define MENU_CENTER_MIN_LEFT_GAP  28
+#define MENU_BOX_PAD_X            4
+#define MENU_SCROLL_BAR_W         4
+#define MENU_BOX_H                22
+#define MENU_ITEM_SPACING_Y       18
 
-// ===== 调试开关 =====
-#define AUTO_DEMO    1      // 1=自动循环演示, 0=串口手动控制
-#define DEMO_INTERVAL 800   // 自动演示按键间隔 ms
+#define AUTO_DEMO                 1
+#define DEMO_INTERVAL             1200
+#define DEMO_BURST_INTERVAL       4800
+#define DEMO_BURST_STEP_MS        70
+#define DEMO_BURST_STEPS          5
 
-// ===== 菜单状态 =====
-static MenuItem *current_menu  = nullptr;   // 当前所在菜单节点
-static int selected_index      = 0;         // 选中项在 children[] 中的下标
-static bool in_content         = false;     // true=内容页, false=菜单
-static MenuItem *content_item  = nullptr;   // 当前内容页对应菜单项
+static MenuItem *current_menu = nullptr;
+static int selected_index = 0;
+static int menu_target_position = 0;
+static float visual_index = 0.0f;
+static float menu_curve_energy = 0.0f;
+static float menu_sling_display = 0.0f;
+static bool in_content = false;
+static MenuItem *content_item = nullptr;
 
-// 动画
-static int  anim_offset   = 0;              // 当前偏移 (≠0 表示动画进行中)
-static unsigned long anim_tick = 0;         // 上次动画帧的时间
+static unsigned long anim_ts = 0;
+static unsigned long menu_last_input_ts = 0;
+static unsigned long menu_curve_ts = 0;
+static unsigned long menu_sling_ts = 0;
 
-// 返回栈
 #define MENU_STACK_MAX 8
 static int menu_stack[MENU_STACK_MAX];
 static int menu_stack_top = 0;
 
+static float clampf(float value, float min_value, float max_value) {
+    if (value < min_value) return min_value;
+    if (value > max_value) return max_value;
+    return value;
+}
+
+static int clampi(int value, int min_value, int max_value) {
+    if (value < min_value) return min_value;
+    if (value > max_value) return max_value;
+    return value;
+}
+
+static uint16_t fade_color(uint16_t base, float intensity) {
+    intensity = clampf(intensity, 0.0f, 1.0f);
+
+    uint8_t r8 = (uint8_t)((((base >> 11) & 0x1F) * 255 / 31) * intensity);
+    uint8_t g8 = (uint8_t)((((base >> 5) & 0x3F) * 255 / 63) * intensity);
+    uint8_t b8 = (uint8_t)(((base & 0x1F) * 255 / 31) * intensity);
+    return tft.color565(r8, g8, b8);
+}
+
+static float smoothstep(float value) {
+    value = clampf(value, 0.0f, 1.0f);
+    return value * value * (3.0f - 2.0f * value);
+}
+
+static const char *menu_title_text() {
+    if (!current_menu || !current_menu->title) return "";
+    return current_menu->title;
+}
+
+static const char *menu_left_focus_text() {
+    if (in_content && content_item && content_item->left_text) {
+        return content_item->left_text;
+    }
+    if (current_menu && current_menu->child_count > 0) {
+        MenuItem *item = current_menu->children[selected_index];
+        if (item && item->left_text) return item->left_text;
+    }
+    return "";
+}
+
+static int menu_count() {
+    return current_menu ? current_menu->child_count : 0;
+}
+
+static void reset_menu_view(int index) {
+    selected_index = index;
+    menu_target_position = index;
+    visual_index = (float)index;
+    menu_curve_energy = 0.0f;
+    menu_sling_display = 0.0f;
+
+    unsigned long now = millis();
+    anim_ts = now;
+    menu_last_input_ts = now;
+    menu_curve_ts = now;
+    menu_sling_ts = now;
+}
+
+static bool menu_is_settled() {
+    return fabsf(visual_index - (float)menu_target_position) < 0.05f &&
+           menu_sling_display < 0.03f;
+}
+
+static void move_selection(int delta) {
+    int count = menu_count();
+    if (count <= 0) return;
+
+    int next = clampi(menu_target_position + delta, 0, count - 1);
+    if (next == menu_target_position) return;
+
+    unsigned long now = millis();
+    unsigned long gap = (menu_last_input_ts == 0) ? 80 : (now - menu_last_input_ts);
+    menu_last_input_ts = now;
+    if (gap < 8) gap = 8;
+
+    float speed_factor = 80.0f / (float)gap;
+    float impulse = fminf(0.55f, 0.12f * fabsf((float)delta) + 0.10f * speed_factor);
+    menu_curve_energy = clampf(menu_curve_energy + impulse, 0.0f, 1.0f);
+
+    selected_index = next;
+    menu_target_position = next;
+}
+
+static bool update_curve_energy() {
+    unsigned long now = millis();
+    if (menu_curve_ts == 0) {
+        menu_curve_ts = now;
+        return false;
+    }
+
+    unsigned long elapsed = now - menu_curve_ts;
+    menu_curve_ts = now;
+    if (elapsed == 0 || menu_curve_energy <= 0.0f) return false;
+
+    float old = menu_curve_energy;
+    menu_curve_energy -= (float)elapsed * 0.0028f;
+    if (menu_curve_energy < 0.0f) menu_curve_energy = 0.0f;
+    return fabsf(old - menu_curve_energy) > 0.01f;
+}
+
+static float target_menu_sling_strength() {
+    float pending = fabsf((float)menu_target_position - visual_index);
+    if (pending <= 0.015f || menu_curve_energy <= 0.01f) return 0.0f;
+
+    float motion_gate = smoothstep(pending / 0.75f);
+    return menu_curve_energy * motion_gate;
+}
+
+static bool update_menu_sling_display() {
+    unsigned long now = millis();
+    if (menu_sling_ts == 0) {
+        menu_sling_ts = now;
+        return false;
+    }
+
+    unsigned long elapsed = now - menu_sling_ts;
+    menu_sling_ts = now;
+    if (elapsed == 0) return false;
+    if (elapsed > 48) elapsed = 48;
+
+    float target = target_menu_sling_strength();
+    float old = menu_sling_display;
+    float rate = (target > menu_sling_display) ? 0.018f : 0.010f;
+    float alpha = 1.0f - expf(-(float)elapsed * rate);
+    menu_sling_display += (target - menu_sling_display) * alpha;
+
+    if (menu_sling_display < 0.004f && target <= 0.001f) menu_sling_display = 0.0f;
+    menu_sling_display = clampf(menu_sling_display, 0.0f, 1.0f);
+    return fabsf(old - menu_sling_display) > 0.002f;
+}
+
+static float menu_vertical_offset(float offset, int spacing_y, float sling_strength) {
+    float distance = fabsf(offset);
+    if (distance <= 0.001f) return 0.0f;
+
+    float sign = (offset >= 0.0f) ? 1.0f : -1.0f;
+    float first_gap = 1.14f + sling_strength * 0.08f;
+    float outer_gap = 0.74f + sling_strength * 0.06f;
+    float units = 0.0f;
+
+    if (distance <= 1.0f) {
+        units = distance * first_gap;
+    } else {
+        units = first_gap + (distance - 1.0f) * outer_gap;
+    }
+
+    return sign * (float)spacing_y * units;
+}
+
+static float menu_curve_offset_x(float offset) {
+    float distance = fabsf(offset);
+    if (distance <= 0.001f) return 0.0f;
+
+    float d = fminf(distance, 2.7f);
+    return powf(d, 1.62f) * MENU_CURVE_FACTOR;
+}
+
+static float menu_sling_offset_x(float offset) {
+    float distance = fabsf(offset);
+    if (distance <= 0.05f || menu_sling_display <= 0.01f) return 0.0f;
+
+    float d = fminf(distance, 3.0f);
+    float speed_curve = powf(d, 1.55f) * MENU_CURVE_SPEED_BOOST;
+    float speed_sling = powf(d, 1.12f) * MENU_SLING_SPEED_BOOST;
+    return -(speed_curve + speed_sling) * menu_sling_display;
+}
+
+static void draw_menu_wheel(int count, int right_panel_x, int right_panel_w, int center_y) {
+    const int sw = tft.width();
+    const int sh = tft.height();
+    const int box_x = right_panel_x + MENU_BOX_PAD_X;
+    const int box_w = right_panel_w - MENU_BOX_PAD_X * 2;
+    const int box_h = MENU_BOX_H;
+    const int box_y = center_y - box_h / 2;
+    const int tri_x = box_x + box_w - 6;
+    const int tri_size = 7;
+    const int item_spacing_y = MENU_ITEM_SPACING_Y;
+
+    u8g2.setFont(u8g2_font_wqy12_t_gb2312);
+    int line_h = u8g2.getFontAscent() - u8g2.getFontDescent();
+    const char *selected_text = current_menu->children[selected_index]->title;
+    int selected_width = u8g2.getUTF8Width(selected_text);
+    if (selected_width < 12) selected_width = 12;
+
+    int rest_center_x = right_panel_x + right_panel_w / 2;
+    int speed_center_x = rest_center_x - (int)(menu_sling_display * MENU_CENTER_FLING_X);
+    int min_center_x = right_panel_x + MENU_CENTER_MIN_LEFT_GAP + selected_width / 2;
+    int max_center_x = sw - selected_width / 2 - 12;
+    int center_x = clampi(speed_center_x, min_center_x, max_center_x);
+
+    screen_sprite.drawRect(box_x, box_y, box_w, box_h, TFT_YELLOW);
+    screen_sprite.fillTriangle(tri_x, center_y - tri_size, tri_x, center_y + tri_size, tri_x - tri_size - 1, center_y, TFT_CYAN);
+
+    int block_x = center_x - selected_width / 2 - 6 - MENU_SCROLL_BAR_W;
+    int block_min_x = box_x + 4;
+    if (block_x < block_min_x) block_x = block_min_x;
+    screen_sprite.fillRect(block_x, box_y + 2, MENU_SCROLL_BAR_W, box_h - 4, TFT_CYAN);
+
+    int base_idx = (int)roundf(visual_index);
+    for (int i = base_idx - VISIBLE_RADIUS; i <= base_idx + VISIBLE_RADIUS; ++i) {
+        if (i < 0 || i >= count) continue;
+
+        float offset = (float)i - visual_index;
+        float distance = fabsf(offset);
+        int item_y = center_y + (int)menu_vertical_offset(offset, item_spacing_y, menu_sling_display);
+        if (item_y < -item_spacing_y || item_y > sh + item_spacing_y) continue;
+
+        const char *text = current_menu->children[i]->title;
+        int text_width = u8g2.getUTF8Width(text);
+        int item_x = center_x - text_width / 2 + (int)(menu_curve_offset_x(offset) + menu_sling_offset_x(offset));
+        item_x = clampi(item_x, right_panel_x + 2, sw - text_width - 5);
+
+        float intensity = 1.0f - distance * 0.40f;
+        if (intensity < 0.18f) intensity = 0.18f;
+        uint16_t color = (distance < 0.55f) ? TFT_CYAN : fade_color(TFT_CYAN, intensity);
+
+        screen_text_color(color, TFT_BLACK);
+        screen_draw_text(item_x, item_y - line_h / 2, text);
+    }
+}
+
 void setup() {
     Serial.begin(115200);
     delay(100);
-
-    Serial.println("\n============================================");
-    Serial.println("  掌上终端 - 76x284 ST7789");
-    Serial.println("============================================");
-
+    Serial.println("\n=== Palm Terminal ===");
     screen_init();
     Serial.printf("Display: %dx%d\n", tft.width(), tft.height());
-
     current_menu = menu_root;
-    selected_index = 0;    // 默认选中第一项
+    reset_menu_view(0);
 }
 
-// ===== 绘制右侧 3 行菜单 =====
-static void draw_menu() {
-    if (!current_menu || current_menu->child_count == 0) return;
-
-    int n  = current_menu->child_count;
-    int si = selected_index;
-    int dy = anim_offset;                         // 动画 y 偏移
-
-    MenuItem *row1 = (si > 0)      ? current_menu->children[si - 1] : nullptr;
-    MenuItem *row2 = current_menu->children[si];
-    MenuItem *row3 = (si + 1 < n)  ? current_menu->children[si + 1] : nullptr;
-
-    u8g2.setFont(u8g2_font_wqy12_t_gb2312);
+static void draw_left() {
     screen_text_color(TFT_CYAN, TFT_BLACK);
 
-    // ---- 行1 (非选中, x=185) ----
-    if (row1) screen_draw_text(185, 7 + dy, row1->title);
+    u8g2.setFont(u8g2_font_wqy12_t_gb2312);
+    screen_draw_text(8, 4, menu_title_text());
 
-    // ---- 行2 (选中, x=175 + 箭头) ----
-    if (row2) {
-        int arrow_w = u8g2.getUTF8Width(">");
-        int gap     = 175 - 160 - arrow_w;
-        screen_draw_text(160,              31 + dy, ">");
-        screen_draw_text(175,              31 + dy, row2->title);
-        int text_w = u8g2.getUTF8Width(row2->title);
-        screen_draw_text(175 + text_w + gap, 31 + dy, "<");
-    }
+    u8g2.setFont(u8g2_font_wqy12_t_gb2312);
+    screen_draw_text(8, 18, menu_left_focus_text());
 
-    // ---- 行3 (非选中, x=185) ----
-    if (row3) screen_draw_text(185, 56 + dy, row3->title);
-
-    // 黄框 (始终在固定位置)
-    screen_sprite.drawRect(94, 24, 186, 22, TFT_YELLOW);
+    u8g2.setFont(u8g2_font_freedoomr25_tn);
+    screen_draw_text(-3, 40, "10:16");
 }
 
-// ===== 绘制内容页 (叶子节点进入后) =====
+static void draw_menu() {
+    int count = menu_count();
+    if (count <= 0) return;
+
+    const int right_panel_x = MENU_DIVIDER_X + 1;
+    const int right_panel_w = tft.width() - right_panel_x;
+    const int center_y = tft.height() / 2;
+    draw_menu_wheel(count, right_panel_x, right_panel_w, center_y);
+}
+
 static void draw_content() {
     if (!content_item) return;
 
     u8g2.setFont(u8g2_font_wqy16_t_gb2312);
     screen_text_color(TFT_CYAN, TFT_BLACK);
-
-    // 右侧显示内容标题 (后续替换为实际天气/数据)
     screen_draw_text(100, 15, content_item->title);
     screen_draw_text(100, 45, "(content area)");
 }
 
-// ===== 绘制左侧面板 =====
-static void draw_left() {
-    // Step 3: 暂时固定显示 (Step 8 联动)
-    u8g2.setFont(u8g2_font_wqy16_t_gb2312);
-    screen_text_color(TFT_CYAN, TFT_BLACK);
-    screen_draw_text(22, 15, "星期天");
+static void update_animation(bool &dirty) {
+    if (in_content) return;
 
-    u8g2.setFont(u8g2_font_freedoomr25_tn);
-    screen_text_color(TFT_CYAN, TFT_BLACK);
-    screen_draw_text(-3, 40, "10:16");
+    float target = (float)menu_target_position;
+    float diff = target - visual_index;
+    if (fabsf(diff) <= VISUAL_EPS) {
+        if (visual_index != target) {
+            visual_index = target;
+            dirty = true;
+        }
+        return;
+    }
+
+    unsigned long now = millis();
+    unsigned long dt = now - anim_ts;
+    if (dt < FRAME_FAST_MS) return;
+
+    anim_ts = now;
+    if (dt > 48) dt = 48;
+
+    float base_alpha = 0.20f + fminf(menu_curve_energy, 1.0f) * 0.07f;
+    float alpha = 1.0f - powf(1.0f - base_alpha, (float)dt / 16.0f);
+    visual_index += diff * alpha;
+    if (fabsf(target - visual_index) <= VISUAL_EPS) {
+        visual_index = target;
+    }
+    dirty = true;
+}
+
+static void handle_menu_enter(bool &dirty) {
+    MenuItem *sel = current_menu->children[selected_index];
+    if (sel->children && sel->child_count > 0) {
+        if (menu_stack_top < MENU_STACK_MAX) {
+            menu_stack[menu_stack_top++] = selected_index;
+        }
+        current_menu = sel;
+        reset_menu_view(0);
+        dirty = true;
+        Serial.printf("Enter: %s\n", sel->title);
+        return;
+    }
+
+    in_content = true;
+    content_item = sel;
+    dirty = true;
+}
+
+static void handle_menu_back(bool &dirty) {
+    if (!current_menu || !current_menu->parent) return;
+
+    current_menu = current_menu->parent;
+    int restore_index = 0;
+    if (menu_stack_top > 0) {
+        restore_index = menu_stack[--menu_stack_top];
+    }
+    reset_menu_view(restore_index);
+    dirty = true;
+    Serial.println("Back");
 }
 
 void loop() {
     static bool dirty = true;
 
-    // ---- 动画: 逐帧逼近 0 ----
-    if (anim_offset != 0 && millis() - anim_tick >= ANIM_DELAY) {
-        anim_tick = millis();
-        if (anim_offset > 0) {
-            anim_offset -= ANIM_STEP;
-            if (anim_offset < 0) anim_offset = 0;
-        } else {
-            anim_offset += ANIM_STEP;
-            if (anim_offset > 0) anim_offset = 0;
-        }
-        dirty = true;
-    }
-
-    // ---- 自动演示 (AUTO_DEMO=1 时生效) ----
 #if AUTO_DEMO
-    if (anim_offset == 0) {
-        static int  demo_dir  = 1;          // 1=向下, -1=向上
+    {
+        static int demo_dir = 1;
         static unsigned long demo_tick = 0;
-        if (millis() - demo_tick >= DEMO_INTERVAL) {
-            demo_tick = millis();
+        static unsigned long burst_tick = 0;
+        static unsigned long burst_step_tick = 0;
+        static int burst_steps_left = 0;
 
+        unsigned long now = millis();
+
+        if (burst_steps_left > 0) {
+            if (now - burst_step_tick >= DEMO_BURST_STEP_MS) {
+                burst_step_tick = now;
+                if (demo_dir > 0) {
+                    if (selected_index + 1 < menu_count()) {
+                        move_selection(+1);
+                        burst_steps_left--;
+                    } else {
+                        demo_dir = -1;
+                        burst_steps_left = 0;
+                    }
+                } else {
+                    if (selected_index > 0) {
+                        move_selection(-1);
+                        burst_steps_left--;
+                    } else {
+                        demo_dir = 1;
+                        burst_steps_left = 0;
+                    }
+                }
+
+                if (burst_steps_left <= 0) {
+                    demo_tick = now;
+                    burst_tick = now;
+                }
+            }
+        } else if (now - burst_tick >= DEMO_BURST_INTERVAL && menu_is_settled() && !in_content) {
+            burst_tick = now;
+            burst_step_tick = now;
+            burst_steps_left = DEMO_BURST_STEPS;
+        } else if (now - demo_tick >= DEMO_INTERVAL && menu_is_settled()) {
+            demo_tick = now;
             if (in_content) {
-                // 内容页: 自动退出
                 in_content = false;
                 content_item = nullptr;
                 dirty = true;
-                Serial.println("Demo: back to menu");
             } else if (demo_dir > 0) {
-                // 向下滚
-                if (selected_index + 1 < current_menu->child_count) {
-                    selected_index++;
-                    anim_offset = +ROW_HEIGHT;
-                    anim_tick = millis();
-                    dirty = true;
+                if (selected_index + 1 < menu_count()) {
+                    move_selection(+1);
                 } else {
-                    demo_dir = -1;  // 触底反弹
+                    demo_dir = -1;
                 }
             } else {
-                // 向上滚
                 if (selected_index > 0) {
-                    selected_index--;
-                    anim_offset = -ROW_HEIGHT;
-                    anim_tick = millis();
-                    dirty = true;
+                    move_selection(-1);
                 } else {
-                    demo_dir = 1;   // 触顶反弹
+                    demo_dir = 1;
                 }
             }
         }
-        // 清空串口缓冲区 (防止积压)
-        while (Serial.available()) Serial.read();
+
+        while (Serial.available()) {
+            Serial.read();
+        }
     }
 #else
-    // ---- 串口输入 (动画期间屏蔽, 防连按撕裂) ----
-    if (anim_offset == 0) {
-        while (Serial.available()) {
-            char c = Serial.read();
+    while (Serial.available()) {
+        char c = Serial.read();
 
-            if (in_content) {
-                if (c == 'q' || c == 'Q') {
-                    in_content = false;
-                    content_item = nullptr;
-                    dirty = true;
-                    Serial.println("Back to menu");
-                }
-                continue;
+        if (in_content) {
+            if (c == 'q' || c == 'Q') {
+                in_content = false;
+                content_item = nullptr;
+                dirty = true;
             }
+            continue;
+        }
 
-            switch (c) {
-                case 'w': case 'W':
-                    if (selected_index > 0) {
-                        selected_index--;
-                        anim_offset = -ROW_HEIGHT;  // 从上方滑入
-                        anim_tick = millis();
-                        dirty = true;
-                    }
-                    break;
+        switch (c) {
+            case 'w':
+            case 'W':
+                move_selection(-1);
+                break;
 
-                case 's': case 'S':
-                    if (selected_index + 1 < current_menu->child_count) {
-                        selected_index++;
-                        anim_offset = +ROW_HEIGHT;  // 从下方滑入
-                        anim_tick = millis();
-                        dirty = true;
-                    }
-                    break;
+            case 's':
+            case 'S':
+                move_selection(+1);
+                break;
 
-                case 'e': case 'E': {
-                    MenuItem *sel = current_menu->children[selected_index];
-                    if (sel->children && sel->child_count > 0) {
-                        menu_stack[menu_stack_top++] = selected_index;
-                        current_menu = sel;
-                        selected_index = 0;
-                        dirty = true;
-                        Serial.printf("Enter: %s\n", sel->title);
-                    } else {
-                        in_content = true;
-                        content_item = sel;
-                        dirty = true;
-                        Serial.printf("Enter: %s (content)\n", sel->title);
-                    }
-                    break;
-                }
+            case 'e':
+            case 'E':
+                handle_menu_enter(dirty);
+                break;
 
-                case 'q': case 'Q':
-                    if (current_menu->parent) {
-                        Serial.printf("Back: %s\n", current_menu->parent->title);
-                        current_menu = current_menu->parent;
-                        selected_index = (menu_stack_top > 0) ? menu_stack[--menu_stack_top] : 0;
-                        dirty = true;
-                    }
-                    break;
-            }
+            case 'q':
+            case 'Q':
+                handle_menu_back(dirty);
+                break;
         }
     }
 #endif
 
-    // ---- 绘制 (全部画到 Sprite, 最后一把推到屏幕) ----
+    if (update_curve_energy()) dirty = true;
+    if (update_menu_sling_display()) dirty = true;
+    update_animation(dirty);
+
     if (dirty) {
         dirty = false;
-        screen_sprite.fillSprite(TFT_BLACK);  // Sprite 内擦除 (用户看不到)
+        screen_sprite.fillSprite(TFT_BLACK);
         draw_left();
-        screen_sprite.drawFastVLine(89, 0, 76, TFT_CYAN);
-        if (in_content) draw_content();
-        else            draw_menu();
-        screen_flush();  // 一次性推到屏幕, 零闪烁
+        screen_sprite.drawFastVLine(MENU_DIVIDER_X, 0, tft.height(), TFT_CYAN);
+        if (in_content) {
+            draw_content();
+        } else {
+            draw_menu();
+        }
+        screen_flush();
     }
 
-    delay(5);
+    delay(1);
 }
