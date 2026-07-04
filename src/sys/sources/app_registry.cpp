@@ -5,6 +5,7 @@ extern AppBase *appMainMenu;
 extern AppBase *appGacha;
 extern AppBase *appGachaStandard;
 extern AppBase *appGachaHistory;
+extern AppBase *appGachaBannerSettings;
 
 AppBase *AppRegistry_Get(AppId id)
 {
@@ -19,6 +20,8 @@ AppBase *AppRegistry_Get(AppId id)
             return appGachaStandard;
         case AppId::GachaHistory:
             return appGachaHistory;
+        case AppId::GachaBannerSettings:
+            return appGachaBannerSettings;
         default:
             return nullptr;
     }

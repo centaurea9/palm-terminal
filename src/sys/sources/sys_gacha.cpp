@@ -2,6 +2,8 @@
 
 #include <Arduino.h>
 
+#include "sys/sys_config.h"
+
 namespace SysGacha {
 namespace {
 
@@ -60,6 +62,11 @@ const Operator kStar3Pool[] = {
 
 Stats g_stats = {};
 PityState g_pity = {};
+Banner g_banner = {
+    "标准寻访",
+    0,
+    1,
+};
 PullResult g_last_pulls[kPullCount] = {};
 int g_last_pull_count = 0;
 
@@ -87,11 +94,36 @@ const Operator *pickFromPool(const Operator (&pool)[N])
     return &pool[random((long)N)];
 }
 
+const Operator *pickSixStarOperator(bool *standard_select_hit)
+{
+    if (standard_select_hit != nullptr) {
+        *standard_select_hit = false;
+    }
+
+    if (g_pity.banner_pulls >= 300 && !g_pity.second_standard_select_used) {
+        g_pity.second_standard_select_used = true;
+        if (standard_select_hit != nullptr) {
+            *standard_select_hit = true;
+        }
+        return GetStar6Operator(g_banner.up6_b_index);
+    }
+
+    if (g_pity.banner_pulls >= 150 && !g_pity.first_standard_select_used) {
+        g_pity.first_standard_select_used = true;
+        if (standard_select_hit != nullptr) {
+            *standard_select_hit = true;
+        }
+        return GetStar6Operator(g_banner.up6_a_index);
+    }
+
+    return pickFromPool(kStar6Pool);
+}
+
 const Operator *pickOperatorByRarity(Rarity rarity)
 {
     switch (rarity) {
         case Rarity::Star6:
-            return pickFromPool(kStar6Pool);
+            return pickSixStarOperator(nullptr);
         case Rarity::Star5:
             return pickFromPool(kStar5Pool);
         case Rarity::Star4:
@@ -99,6 +131,58 @@ const Operator *pickOperatorByRarity(Rarity rarity)
         case Rarity::Star3:
         default:
             return pickFromPool(kStar3Pool);
+    }
+}
+
+template <size_t N>
+uint8_t poolIndexForOperator(const Operator (&pool)[N], const Operator *op)
+{
+    if (op == nullptr) return 0;
+
+    for (size_t i = 0; i < N; ++i) {
+        if (op == &pool[i]) {
+            return (uint8_t)i;
+        }
+    }
+
+    return 0;
+}
+
+uint8_t poolIndexForResult(const PullResult &result)
+{
+    switch (result.rarity) {
+        case Rarity::Star6:
+            return poolIndexForOperator(kStar6Pool, result.op);
+        case Rarity::Star5:
+            return poolIndexForOperator(kStar5Pool, result.op);
+        case Rarity::Star4:
+            return poolIndexForOperator(kStar4Pool, result.op);
+        case Rarity::Star3:
+        default:
+            return poolIndexForOperator(kStar3Pool, result.op);
+    }
+}
+
+template <size_t N>
+const Operator *operatorFromPoolIndex(const Operator (&pool)[N], uint8_t pool_index)
+{
+    if (N == 0) return nullptr;
+    if (pool_index >= N) pool_index = 0;
+    return &pool[pool_index];
+}
+
+const Operator *operatorFromSavedIndex(Rarity rarity, uint8_t pool_index)
+{
+    switch (rarity) {
+        case Rarity::Star6:
+            return operatorFromPoolIndex(kStar6Pool, pool_index);
+        case Rarity::Star5:
+            return operatorFromPoolIndex(kStar5Pool, pool_index);
+        case Rarity::Star4:
+            return operatorFromPoolIndex(kStar4Pool, pool_index);
+        case Rarity::Star3:
+        default:
+            return operatorFromPoolIndex(kStar3Pool, pool_index);
     }
 }
 
@@ -124,10 +208,6 @@ void updateStats(Rarity rarity)
 
 void updatePity(Rarity rarity)
 {
-    if (g_pity.banner_pulls < UINT16_MAX) {
-        ++g_pity.banner_pulls;
-    }
-
     if (rarity == Rarity::Star6) {
         g_pity.pulls_since_star6 = 0;
         return;
@@ -141,6 +221,10 @@ void updatePity(Rarity rarity)
 PullResult rollSingle()
 {
     int six_rate = calcSixRate();
+    if (g_pity.banner_pulls < UINT16_MAX) {
+        ++g_pity.banner_pulls;
+    }
+
     int r = random(Rates::kRateScale);
 
     Rarity rarity = Rarity::Star3;
@@ -152,11 +236,16 @@ PullResult rollSingle()
         rarity = Rarity::Star4;
     }
 
+    bool standard_select_hit = false;
+    const Operator *op = (rarity == Rarity::Star6)
+        ? pickSixStarOperator(&standard_select_hit)
+        : pickOperatorByRarity(rarity);
+
     PullResult result = {
-        pickOperatorByRarity(rarity),
+        op,
         rarity,
         rarity == Rarity::Star6 && six_rate > Rates::kStar6Base,
-        false,
+        standard_select_hit,
     };
 
     updateStats(rarity);
@@ -176,6 +265,116 @@ void ExecuteTenPull(PullResult *out_results, int out_count)
             out_results[i] = g_last_pulls[i];
         }
     }
+
+    SaveStateToConfig();
+}
+
+void LoadStateFromConfig()
+{
+    g_banner.title = sysConfig.gacha_banner.title;
+    g_banner.up6_a_index = ClampStar6Index(sysConfig.gacha_banner.up6_a_index);
+    g_banner.up6_b_index = ClampStar6Index(sysConfig.gacha_banner.up6_b_index);
+    if (g_banner.up6_a_index == g_banner.up6_b_index) {
+        g_banner.up6_b_index = NextStar6Index(g_banner.up6_a_index);
+    }
+    sysConfig.gacha_banner.up6_a_index = g_banner.up6_a_index;
+    sysConfig.gacha_banner.up6_b_index = g_banner.up6_b_index;
+
+    g_stats = sysConfig.gacha_stats;
+    g_pity = sysConfig.gacha_pity;
+    g_last_pull_count = sysConfig.gacha_last_pull_count;
+    if (g_last_pull_count < 0) {
+        g_last_pull_count = 0;
+    }
+    if (g_last_pull_count > kPullCount) {
+        g_last_pull_count = kPullCount;
+    }
+
+    for (int i = 0; i < g_last_pull_count; ++i) {
+        const SysConfig::GachaLastPullSave &saved = sysConfig.gacha_last_pulls[i];
+        g_last_pulls[i] = {
+            operatorFromSavedIndex(saved.rarity, saved.pool_index),
+            saved.rarity,
+            saved.from_pity,
+            saved.standard_select_hit,
+        };
+    }
+}
+
+void SaveStateToConfig()
+{
+    sysConfig.gacha_banner.up6_a_index = g_banner.up6_a_index;
+    sysConfig.gacha_banner.up6_b_index = g_banner.up6_b_index;
+    sysConfig.gacha_stats = g_stats;
+    sysConfig.gacha_pity = g_pity;
+    sysConfig.gacha_last_pull_count = (uint8_t)g_last_pull_count;
+
+    for (int i = 0; i < g_last_pull_count && i < kPullCount; ++i) {
+        sysConfig.gacha_last_pulls[i].rarity = g_last_pulls[i].rarity;
+        sysConfig.gacha_last_pulls[i].pool_index = poolIndexForResult(g_last_pulls[i]);
+        sysConfig.gacha_last_pulls[i].from_pity = g_last_pulls[i].from_pity;
+        sysConfig.gacha_last_pulls[i].standard_select_hit = g_last_pulls[i].standard_select_hit;
+    }
+
+    sysConfig.save();
+}
+
+const Banner &GetBanner()
+{
+    return g_banner;
+}
+
+void SetBannerUp6(uint8_t up_a_index, uint8_t up_b_index)
+{
+    g_banner.up6_a_index = ClampStar6Index(up_a_index);
+    g_banner.up6_b_index = ClampStar6Index(up_b_index);
+    if (g_banner.up6_a_index == g_banner.up6_b_index) {
+        g_banner.up6_b_index = NextStar6Index(g_banner.up6_a_index);
+    }
+
+    sysConfig.gacha_banner.up6_a_index = g_banner.up6_a_index;
+    sysConfig.gacha_banner.up6_b_index = g_banner.up6_b_index;
+    sysConfig.save();
+}
+
+int GetStar6PoolCount()
+{
+    return sizeof(kStar6Pool) / sizeof(kStar6Pool[0]);
+}
+
+const Operator *GetStar6Operator(int index)
+{
+    int count = GetStar6PoolCount();
+    if (count <= 0) {
+        return nullptr;
+    }
+
+    if (index < 0) index = 0;
+    if (index >= count) index = count - 1;
+    return &kStar6Pool[index];
+}
+
+uint8_t ClampStar6Index(uint8_t index)
+{
+    int count = GetStar6PoolCount();
+    if (count <= 0) {
+        return 0;
+    }
+
+    if (index >= count) {
+        return (uint8_t)(count - 1);
+    }
+    return index;
+}
+
+uint8_t NextStar6Index(uint8_t index)
+{
+    int count = GetStar6PoolCount();
+    if (count <= 1) {
+        return 0;
+    }
+
+    return (uint8_t)((ClampStar6Index(index) + 1) % count);
 }
 
 const Stats &GetStats()

@@ -128,7 +128,10 @@ public:
         dirty_ = true;
     }
 
-    void onKeyLong() override {}
+    void onKeyLong() override
+    {
+        appManager.pop();
+    }
 
 private:
     GachaPhase phase_ = GachaPhase::Idle;
@@ -216,13 +219,20 @@ private:
     {
         const SysGacha::Stats &stats = SysGacha::GetStats();
         const SysGacha::PityState &pity = SysGacha::GetPityState();
+        const SysGacha::Banner &banner = SysGacha::GetBanner();
+        const SysGacha::Operator *up_a = SysGacha::GetStar6Operator(banner.up6_a_index);
+        const SysGacha::Operator *up_b = SysGacha::GetStar6Operator(banner.up6_b_index);
 
         drawCenteredText(8, UIStrings::GachaStandardTitle(), u8g2_font_wqy16_t_gb2312, UITheme::Color::kText);
-        drawCenteredText(36, UIStrings::GachaStartHint(), u8g2_font_wqy12_t_gb2312, UITheme::Color::kAccent);
 
-        char buf[48];
+        char buf[64];
+        snprintf(buf, sizeof(buf), "UP %s/%s", up_a ? up_a->name : "未知", up_b ? up_b->name : "未知");
+        drawCenteredText(32, buf, u8g2_font_wqy12_t_gb2312, UITheme::Gacha::kStar6);
+
+        drawCenteredText(48, UIStrings::GachaStartHint(), u8g2_font_wqy12_t_gb2312, UITheme::Color::kAccent);
+
         snprintf(buf, sizeof(buf), "总抽 %lu  距6星 %u", (unsigned long)stats.total, pity.pulls_since_star6);
-        drawCenteredText(56, buf, u8g2_font_wqy12_t_gb2312, UITheme::Gacha::kDim);
+        drawCenteredText(64, buf, u8g2_font_wqy12_t_gb2312, UITheme::Gacha::kDim);
     }
 
     void drawAnimating()

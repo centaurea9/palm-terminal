@@ -58,6 +58,11 @@ inline const char *GachaHistoryTitle()
     return "抽卡历史";
 }
 
+inline const char *GachaBannerSettingsTitle()
+{
+    return "卡池设置";
+}
+
 inline const char *GachaBackText()
 {
     return "返回";

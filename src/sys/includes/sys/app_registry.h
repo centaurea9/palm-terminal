@@ -10,6 +10,7 @@ enum class AppId : uint8_t {
     Gacha,
     GachaStandard,
     GachaHistory,
+    GachaBannerSettings,
 };
 
 AppBase *AppRegistry_Get(AppId id);

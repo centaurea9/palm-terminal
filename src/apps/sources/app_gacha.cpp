@@ -31,6 +31,14 @@ MenuItem gacha_history = {
     nullptr, 0,
 };
 
+MenuItem gacha_banner_settings = {
+    UIStrings::GachaBannerSettingsTitle(),
+    "卡池",
+    nullptr, 0, 0,
+    &gacha_root,
+    nullptr, 0,
+};
+
 MenuItem gacha_back = {
     UIStrings::GachaBackText(),
     "返回",
@@ -42,6 +50,7 @@ MenuItem gacha_back = {
 MenuItem *gacha_children[] = {
     &gacha_standard,
     &gacha_history,
+    &gacha_banner_settings,
     &gacha_back,
 };
 
@@ -74,6 +83,11 @@ protected:
 
         if (item == &gacha_history) {
             appManager.push(AppId::GachaHistory);
+            return true;
+        }
+
+        if (item == &gacha_banner_settings) {
+            appManager.push(AppId::GachaBannerSettings);
             return true;
         }
 

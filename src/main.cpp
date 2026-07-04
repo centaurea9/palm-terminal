@@ -3,12 +3,19 @@
 #include "hal/hal.h"
 #include "sys/app_manager.h"
 #include "sys/sys_constants.h"
+#include "sys/sys_config.h"
+#include "sys/sys_fs.h"
+#include "sys/sys_gacha.h"
 
 void setup()
 {
     Serial.begin(SysConst::kSerialBaud);
     delay(100);
     Serial.println("\n=== Palm Terminal ===");
+
+    SysFS_Init();
+    sysConfig.load();
+    SysGacha::LoadStateFromConfig();
 
     HAL_Init();
 
