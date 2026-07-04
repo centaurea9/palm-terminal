@@ -7,10 +7,10 @@ namespace SysConst {
 
 constexpr uint32_t kSerialBaud = 115200;
 
-constexpr uint8_t kEc11PinA = 25;
-constexpr uint8_t kEc11PinB = 26;
-constexpr uint8_t kEc11PinSw = 27;
-constexpr uint16_t kEc11LongPressMs = 700;
+constexpr uint8_t kEc11PinA = 26;
+constexpr uint8_t kEc11PinB = 27;
+constexpr uint8_t kConfirmButtonPin = 0;
+constexpr uint16_t kConfirmButtonLongPressMs = 700;
 
 constexpr float kMenuVisualEps = 0.02f;
 constexpr uint16_t kFrameFastMs = 16;

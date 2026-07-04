@@ -42,6 +42,19 @@ constexpr int kContentTitleY = 15;
 constexpr int kContentBodyY = 45;
 } // namespace Layout
 
+namespace Gacha {
+constexpr int kPullCount = 10;
+constexpr int kResultVisibleRows = 5;
+constexpr uint32_t kAnimDurationMs = 1600;
+constexpr uint32_t kAnimFrameMs = 33;
+
+constexpr uint16_t kStar6 = 0xFDA0;
+constexpr uint16_t kStar5 = TFT_YELLOW;
+constexpr uint16_t kStar4 = 0x781F;
+constexpr uint16_t kStar3 = TFT_WHITE;
+constexpr uint16_t kDim = 0x39E7;
+} // namespace Gacha
+
 } // namespace UITheme
 
 #endif

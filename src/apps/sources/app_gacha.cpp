@@ -2,55 +2,47 @@
 
 #include "lang/ui_strings.h"
 #include "sys/app_manager.h"
+#include "sys/app_registry.h"
 #include "ui/ui_theme.h"
 
 namespace {
 
 MenuItem gacha_root = {
-    "GACHA",
-    "GACHA",
+    UIStrings::GachaMenuTitle(),
+    "寻访",
     nullptr, 0, 0,
     nullptr,
     nullptr, 0,
 };
 
-MenuItem gacha_single = {
-    "Single",
-    "Single",
-    nullptr, 0, 0,
-    &gacha_root,
-    nullptr, 0,
-};
-
-MenuItem gacha_ten = {
-    "Ten Pull",
-    "Ten",
+MenuItem gacha_standard = {
+    UIStrings::GachaStandardTitle(),
+    "标准",
     nullptr, 0, 0,
     &gacha_root,
     nullptr, 0,
 };
 
 MenuItem gacha_history = {
-    "History",
-    "History",
+    UIStrings::GachaHistoryTitle(),
+    "历史",
     nullptr, 0, 0,
     &gacha_root,
     nullptr, 0,
 };
 
-MenuItem gacha_rules = {
-    "Rules",
-    "Rules",
+MenuItem gacha_back = {
+    UIStrings::GachaBackText(),
+    "返回",
     nullptr, 0, 0,
     &gacha_root,
     nullptr, 0,
 };
 
 MenuItem *gacha_children[] = {
-    &gacha_single,
-    &gacha_ten,
+    &gacha_standard,
     &gacha_history,
-    &gacha_rules,
+    &gacha_back,
 };
 
 class AppGacha : public AppMenuBase {
@@ -71,6 +63,26 @@ protected:
     void onRootBack() override
     {
         appManager.pop();
+    }
+
+    bool onLeafSelected(MenuItem *item) override
+    {
+        if (item == &gacha_standard) {
+            appManager.push(AppId::GachaStandard);
+            return true;
+        }
+
+        if (item == &gacha_history) {
+            appManager.push(AppId::GachaHistory);
+            return true;
+        }
+
+        if (item == &gacha_back) {
+            appManager.pop();
+            return true;
+        }
+
+        return false;
     }
 
     void drawLeafContent(MenuItem *item) override

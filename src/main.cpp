@@ -13,8 +13,8 @@ void setup()
     HAL_Init();
 
     Serial.printf("Display: %dx%d\n", HAL_Get_Screen_Width(), HAL_Get_Screen_Height());
-    Serial.printf("EC11 pins: A=%d, B=%d, SW=%d\n", SysConst::kEc11PinA, SysConst::kEc11PinB, SysConst::kEc11PinSw);
-    Serial.println("EC11: CW=up, CCW=down, click=enter, hold=back");
+    Serial.printf("EC11 pins: A=%d, B=%d\n", SysConst::kEc11PinA, SysConst::kEc11PinB);
+    Serial.printf("Confirm button: GPIO%d, press=enter, hold=back\n", SysConst::kConfirmButtonPin);
 
     appManager.begin();
 }

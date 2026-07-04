@@ -17,8 +17,8 @@ void HAL_Init()
     EC11Config encoder_config;
     encoder_config.pin_a = SysConst::kEc11PinA;
     encoder_config.pin_b = SysConst::kEc11PinB;
-    encoder_config.pin_button = SysConst::kEc11PinSw;
-    encoder_config.long_press_ms = SysConst::kEc11LongPressMs;
+    encoder_config.pin_button = SysConst::kConfirmButtonPin;
+    encoder_config.long_press_ms = SysConst::kConfirmButtonLongPressMs;
     g_encoder.begin(encoder_config);
 }
 

@@ -30,17 +30,57 @@ inline const char *ContentPlaceholder()
 
 inline const char *GachaTitle()
 {
-    return "GACHA";
+    return "干员寻访";
 }
 
 inline const char *GachaReady()
 {
-    return "Gacha page ready";
+    return "寻访系统就绪";
 }
 
 inline const char *GachaHint()
 {
-    return "Hold: back";
+    return "短按选择";
+}
+
+inline const char *GachaMenuTitle()
+{
+    return "干员寻访";
+}
+
+inline const char *GachaStandardTitle()
+{
+    return "标准寻访";
+}
+
+inline const char *GachaHistoryTitle()
+{
+    return "抽卡历史";
+}
+
+inline const char *GachaBackText()
+{
+    return "返回";
+}
+
+inline const char *GachaStartHint()
+{
+    return "短按开始十连";
+}
+
+inline const char *GachaAnimatingText()
+{
+    return "寻访中";
+}
+
+inline const char *GachaResultTitle()
+{
+    return "寻访结果";
+}
+
+inline const char *GachaStatsTitle()
+{
+    return "本次运行统计";
 }
 
 } // namespace UIStrings

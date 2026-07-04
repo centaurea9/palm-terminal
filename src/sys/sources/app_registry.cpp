@@ -3,6 +3,8 @@
 extern AppBase *appStandby;
 extern AppBase *appMainMenu;
 extern AppBase *appGacha;
+extern AppBase *appGachaStandard;
+extern AppBase *appGachaHistory;
 
 AppBase *AppRegistry_Get(AppId id)
 {
@@ -13,6 +15,10 @@ AppBase *AppRegistry_Get(AppId id)
             return appMainMenu;
         case AppId::Gacha:
             return appGacha;
+        case AppId::GachaStandard:
+            return appGachaStandard;
+        case AppId::GachaHistory:
+            return appGachaHistory;
         default:
             return nullptr;
     }

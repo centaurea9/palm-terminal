@@ -8,6 +8,8 @@ enum class AppId : uint8_t {
     Standby,
     MainMenu,
     Gacha,
+    GachaStandard,
+    GachaHistory,
 };
 
 AppBase *AppRegistry_Get(AppId id);

@@ -109,8 +109,8 @@ MenuItem item_settings = {
 // ---- 新增叶子 ----
 
 MenuItem item_func4 = {
-    "GACHA",
-    "GACHA",
+    "干员寻访",
+    "寻访",
     nullptr, 0, 0,
     &root_node,
     nullptr, 0,
