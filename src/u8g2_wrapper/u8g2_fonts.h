@@ -37,6 +37,8 @@ typedef uint16_t u8g2_uint_t;
 // 英文
 extern const uint8_t u8g2_font_unifont_t_symbols[]
   U8G2_FONT_SECTION("u8g2_font_unifont_t_symbols");
+extern const uint8_t u8g2_font_freedoomr25_tn[]
+  U8G2_FONT_SECTION("u8g2_font_freedoomr25_tn");
 
 // 中文 (文泉驿 12-16px)
 extern const uint8_t u8g2_font_wqy12_t_gb2312[]
